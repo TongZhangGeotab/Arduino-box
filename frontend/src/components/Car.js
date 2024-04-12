@@ -1,54 +1,35 @@
+// src/Car.js
+
 import React, { useState, useEffect } from 'react';
 
 const Car = () => {
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-
-  const moveCharacter = (x, y) => {
-    setPosition(prevPosition => ({
-      x: prevPosition.x + x,
-      y: prevPosition.y + y
-    }));
-  };
+  const [sensors, setSensors] = useState({ x: 0, y: 0, z: 0, time_stamp: 0 });
+  const [ws, setWs] = useState(null);
 
   useEffect(() => {
-    const handleKeyPress = (event) => {
-      switch (event.key) {
-        case 'w':
-          moveCharacter(0, -5);
-          break;
-        case 'a':
-          moveCharacter(-5, 0);
-          break;
-        case 's':
-          moveCharacter(0, 5);
-          break;
-        case 'd':
-          moveCharacter(5, 0);
-          break;
-        default:
-          break;
-      }
+    const newWs = new WebSocket('ws://localhost:6789');
+
+    newWs.onmessage = (event) => {
+      const [x, y, z, time_stamp] = event.data.split(',').map(Number);
+      setSensors({ x, y, z, time_stamp });
     };
 
-    window.addEventListener('keypress', handleKeyPress);
+    setWs(newWs);
 
     return () => {
-      window.removeEventListener('keypress', handleKeyPress);
+      newWs.close();
     };
   }, []);
 
-  const characterStyle = {
-    position: 'absolute',
-    top: position.y,
-    left: position.x,
-    width: '50px',
-    height: '50px',
-    backgroundColor: 'blue'
-  };
+  // ... rest of your component
 
   return (
     <div>
-      <div style={characterStyle}></div>
+      {/* Display sensor data or use it to update a position */}
+      <div>X: {sensors.x}</div>
+      <div>Y: {sensors.y}</div>
+      <div>Z: {sensors.z}</div>
+      <div>Timestamp: {sensors.time_stamp}</div>
     </div>
   );
 };
