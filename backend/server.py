@@ -1,32 +1,146 @@
-import asyncio
-import websockets
+import math
+import time
+
 from pymata4 import pymata4
 
-X_PIN = 0
-Y_PIN = 1
-Z_PIN = 12
+# Callback data indices
+CB_PIN_MODE = 0
+CB_PIN = 1
+CB_VALUE = 2
+CB_TIME = 3
+
+# Pinout constants
+IGNITION_PIN = 2
+
+X1_PIN = 0
+Y1_PIN = 1
+Z1_PIN = 3
+
+POT_PIN = 2
+
+BUTTON_HB_PIN = 4
+BUTTON_HZ_PIN = 5
+
+LED_L_PIN = 6
+LED_R_PIN = 7
+
+LED_HB_PIN = 8
+LED_HZ_PIN = 9
+
+# Constant values
+CYCLE_TIME = 0.1
+
+MAX_INT = 1024
+
+LEFT_THRESH = MAX_INT // 3 - 1
+RIGHT_THRESH = MAX_INT * 2 // 3 - 1
+
+message = {
+    'ignition': 0,
+    'z1': 0,
+    'z2': 0,
+    'pos_x': 0,
+    'pos_y': 0,
+    'v': 0,
+    'angle': 0,
+    'bl': 0,
+    'br': 0,
+    'hb': 0,
+    'hz': 0
+}
 
 board = pymata4.Pymata4()
 
-board.set_pin_mode_analog_input(X_PIN)
-board.set_pin_mode_analog_input(Y_PIN)
-board.set_pin_mode_digital_input(Z_PIN)
+def pot_handler(data):
+    print(data)
+    if data < 256:
+        message['bl'] = True
+        board.digital_pin_write(LED_L_PIN, 1)
+    else:
+        message['bl'] = False
+        board.digital_pin_write(LED_L_PIN, 0)
+    if data > 768:
+        message['br'] = True
+        board.digital_pin_write(LED_L_PIN, 1)
+    else:
+        message['br'] = False
+        board.digital_pin_write(LED_L_PIN, 0)
 
-async def send_keyboard_input(websocket, path):
+def joystick_handler(x1, y1):
+    accel = y1 - MAX_INT / 2
+    turn = x1 - MAX_INT / 2
+    
+    distance = accel * CYCLE_TIME ** 2 + message['v'] * CYCLE_TIME
+    message['v'] += accel * CYCLE_TIME
+
+    message['angle'] += turn * 0.3 / MAX_INT
+    message['pos_x'] += distance * math.cos(message['angle'])
+    message['pos_y'] += distance * math.sin(message['angle'])
+
+board.set_pin_mode_digital_input(IGNITION_PIN)
+
+board.set_pin_mode_analog_input(X1_PIN)
+board.set_pin_mode_analog_input(Y1_PIN)
+board.set_pin_mode_digital_input(Z1_PIN)
+
+board.set_pin_mode_analog_input(POT_PIN)
+
+board.set_pin_mode_digital_output(LED_L_PIN)
+board.set_pin_mode_digital_output(LED_R_PIN)
+
+board.set_pin_mode_digital_input(BUTTON_HB_PIN)
+board.set_pin_mode_digital_input(BUTTON_HZ_PIN)
+
+board.set_pin_mode_digital_output(LED_HB_PIN)
+board.set_pin_mode_digital_output(LED_HZ_PIN)
+
+def system():
+    hb_button_state = 0
+    hz_button_state = 0
     while True:
-        await asyncio.sleep(0.1)
-        x, time_stamp = board.analog_read(X_PIN)
-        y, _ = board.analog_read(Y_PIN)
-        z, _ = board.digital_read(Z_PIN)
-        print(x, y, z, time_stamp)
-        await websocket.send(f"{x}, {y}, {z}, {time_stamp}")
+        # await asyncio.sleep(0.1)
+        time.sleep(0.1)
+        ignition, _ = board.digital_read(IGNITION_PIN)
+        if ignition != message['ignition']:
+            message['ignition'] = ignition
+            print(f"ignition pin: {IGNITION_PIN}, val: {ignition}")
 
-async def main():
-    # Start the WebSocket server
-    server = await websockets.serve(send_keyboard_input, "localhost", 6789)
-    print("WebSocket server started.")
-    await server.wait_closed()  # Run until the server is stopped
+        hb, _ = board.digital_read(BUTTON_HB_PIN)
+        if hb != hb_button_state:
+            hb_button_state = hb
+            if hb:
+                message['hb'] = not message['hb']
+                board.digital_write(LED_HB_PIN, message['hb'])
+                print(f"high beam pin: {BUTTON_HB_PIN}, val: {message['hb']}")
 
+        hz, _ = board.digital_read(BUTTON_HZ_PIN)
+        if hz != hz_button_state:
+            hz_button_state = hz
+            if hz:
+                message['hz'] = not message['hz']
+                board.digital_write(LED_HZ_PIN, message['hz'])
+                print(f"hazard pin: {BUTTON_HZ_PIN}, val: {message['hz']}")
 
-# Run the event loop
-asyncio.run(main())
+        x1, _ = board.analog_read(X1_PIN)
+        y1, _ = board.analog_read(Y1_PIN)
+        z1, _ = board.digital_read(Z1_PIN)
+
+        joystick_handler(x1, y1)
+
+        pot, _ = board.analog_read(POT_PIN)
+
+        if pot < 256 and not message['bl']:
+            message['bl'] = True
+            board.digital_pin_write(LED_L_PIN, 1)
+        elif pot > 256 and message['bl']:
+                message['bl'] = False
+                board.digital_pin_write(LED_L_PIN, 0)
+        if pot > 768 and not message['br']:
+                message['br'] = True
+                board.digital_pin_write(LED_R_PIN, 1)
+        elif pot < 768 and message['br']:
+                message['br'] = False
+                board.digital_pin_write(LED_R_PIN, 0)
+        print(x1, y1, z1, pot)
+
+system()
