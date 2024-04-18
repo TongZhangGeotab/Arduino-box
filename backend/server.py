@@ -1,4 +1,3 @@
-import math
 import time
 
 from pymata4 import pymata4
@@ -37,10 +36,9 @@ RIGHT_THRESH = MAX_INT * 2 // 3 - 1
 
 message = {
     'ignition': 0,
-    'z1': 0,
-    'z2': 0,
     'pos_x': 0,
     'pos_y': 0,
+    'z1': 0,
     'v': 0,
     'angle': 0,
     'bl': 0,
@@ -66,17 +64,6 @@ def pot_handler(data):
         message['br'] = False
         board.digital_pin_write(LED_L_PIN, 0)
 
-def joystick_handler(x1, y1):
-    accel = y1 - MAX_INT / 2
-    turn = x1 - MAX_INT / 2
-    
-    distance = accel * CYCLE_TIME ** 2 + message['v'] * CYCLE_TIME
-    message['v'] += accel * CYCLE_TIME
-
-    message['angle'] += turn * 0.3 / MAX_INT
-    message['pos_x'] += distance * math.cos(message['angle'])
-    message['pos_y'] += distance * math.sin(message['angle'])
-
 board.set_pin_mode_digital_input(IGNITION_PIN)
 
 board.set_pin_mode_analog_input(X1_PIN)
@@ -98,7 +85,6 @@ def system():
     hb_button_state = 0
     hz_button_state = 0
     while True:
-        # await asyncio.sleep(0.1)
         time.sleep(0.1)
         ignition, _ = board.digital_read(IGNITION_PIN)
         if ignition != message['ignition']:
@@ -125,7 +111,9 @@ def system():
         y1, _ = board.analog_read(Y1_PIN)
         z1, _ = board.digital_read(Z1_PIN)
 
-        joystick_handler(x1, y1)
+        message['pos_x'] = x1
+        message['pos_y'] = y1
+        message['z1'] = z1
 
         pot, _ = board.analog_read(POT_PIN)
 
