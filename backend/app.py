@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import math
 
 from pymata4 import pymata4
 from flask import Flask, jsonify
@@ -69,6 +70,11 @@ state = {
     'x': 0,
     'y': 0,
     'z': 0,
+    'pos': 0,
+    'speed': 0,
+    'accel': 0,
+    'angle': 0,
+    'angle_speed': 0,
     'bl': 0,
     'br': 0,
     'hb': 0,
@@ -81,6 +87,8 @@ local_state = {
     "left_blinker_state": 0,
     "right_blinker_state": 0,
 }
+
+ticks = 0
 
 def send_dig_call(value, code):
     if SEND_DIG:
@@ -97,6 +105,8 @@ def send_dig_call(value, code):
             print('sending GeneritStatusRecord failed')
 
 def system():
+    global ticks
+
     ignition, _ = board.digital_read(IGNITION_PIN)
     if ignition != state['ignition']:
         state['ignition'] = ignition
@@ -122,9 +132,20 @@ def system():
     y, _ = board.analog_read(Y_PIN)
     z, _ = board.digital_read(Z_PIN)
 
-    state['x'] = x
-    state['y'] = y
+    accel = (x - MAX_INT // 2) * 10 / (MAX_INT // 2)
+    speed = state['speed'] + accel * 0.1
+    distance = (state['speed'] + speed) // 2 * 0.1
+
+    angle_accel = (y - MAX_INT // 2) * 1 / (MAX_INT // 2)
+    angle_speed = state['angle_speed'] + angle_accel * 0.1
+
     state['z'] = z
+    state['accel'] = accel
+    state['speed'] = speed
+    state['x'] += distance * math.cos(state['angle'])
+    state['y'] += distance * math.sin(state['angle'])
+    state['angle_speed'] = angle_speed
+    state['angle'] += (state['angle_speed'] + angle_speed) // 2 * 0.1
 
     pot, _ = board.analog_read(POT_PIN)
 
@@ -152,6 +173,8 @@ def system():
         if local_state["right_blinker_state"]:
             send_dig_call(state['br'], RIGHT_SIGNAL_CODE)
             local_state["right_blinker_state"] = 0
+
+    ticks += 1
     print(state)
 
 # App setup
