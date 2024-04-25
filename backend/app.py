@@ -9,6 +9,11 @@ import dig_calls
 
 # DIG constants
 SEND_DIG = False
+IGNITION_CODE = 10000
+HIGH_BEAM_CODE = 2091
+HAZARD_LIGHT_CODE = 2090
+LEFT_SIGNAL_CODE = 41
+RIGHT_SIGNAL_CODE = 42
 
 # Pinout constants
 IGNITION_PIN = 2
@@ -70,45 +75,48 @@ state = {
     'hz': 0,
 }
 
-ticks = 0
+local_state = {
+    "hb_button_state": 0,
+    "hz_button_state": 0,
+    "left_blinker_state": 0,
+    "right_blinker_state": 0,
+}
 
-hb_button_state = 0
-hz_button_state = 0
+def send_dig_call(value, code):
+    if SEND_DIG:
+        try:
+            res = dig_calls.send_GenericStatusRecord(
+                token=token,
+                serialNo=SERIAL_NUMBER,
+                code=code,
+                value=value,
+                timestamp=datetime.now()
+            )
+            assert res
+        except AssertionError:
+            print('sending GeneritStatusRecord failed')
 
 def system():
-    global hb_button_state
-    global hz_button_state
-
     ignition, _ = board.digital_read(IGNITION_PIN)
     if ignition != state['ignition']:
         state['ignition'] = ignition
-        if SEND_DIG:
-            try:
-                res = dig_calls.send_GenericStatusRecord(
-                    token=token,
-                    serialNo=SERIAL_NUMBER,
-                    code=IGNITION_CODE,
-                    value=state['ignition'],
-                    timestamp=datetime.now()
-                )
-                assert res
-            except AssertionError:
-                print('sending GeneritStatusRecord failed')
-
+        send_dig_call(state['ignition'], IGNITION_CODE)
 
     hb, _ = board.digital_read(BUTTON_HB_PIN)
-    if hb != hb_button_state:
-        hb_button_state = hb
+    if hb != local_state["hb_button_state"]:
+        local_state["hb_button_state"] = hb
         if hb:
             state['hb'] = not state['hb']
             board.digital_write(LED_HB_PIN, state['hb'])
+            send_dig_call(state['hb'], HIGH_BEAM_CODE)
 
     hz, _ = board.digital_read(BUTTON_HZ_PIN)
-    if hz != hz_button_state:
-        hz_button_state = hz
+    if hz != local_state["hz_button_state"]:
+        local_state["hz_button_state"] = hz
         if hz:
             state['hz'] = not state['hz']
             board.digital_write(LED_HZ_PIN, state['hz'])
+            send_dig_call(state['hz'], HAZARD_LIGHT_CODE)
 
     x, _ = board.analog_read(X_PIN)
     y, _ = board.analog_read(Y_PIN)
@@ -123,16 +131,27 @@ def system():
     if pot < LEFT_THRESH and not state['bl']:
         state['bl'] = 1
         board.digital_pin_write(LED_L_PIN, 1)
+        if not local_state["left_blinker_state"]:
+            send_dig_call(state['bl'], LEFT_SIGNAL_CODE)
+            local_state["left_blinker_state"] = 1
     elif pot > LEFT_THRESH and state['bl']:
-            state['bl'] = 0
-            board.digital_pin_write(LED_L_PIN, 0)
+        state['bl'] = 0
+        board.digital_pin_write(LED_L_PIN, 0)
+        if local_state["left_blinker_state"]:
+            send_dig_call(state['bl'], LEFT_SIGNAL_CODE)
+            local_state["left_blinker_state"] = 0
     if pot > RIGHT_THRESH and not state['br']:
-            state['br'] = 1
-            board.digital_pin_write(LED_R_PIN, 1)
+        state['br'] = 1
+        board.digital_pin_write(LED_R_PIN, 1)
+        if not local_state["right_blinker_state"]:
+            send_dig_call(state['br'], RIGHT_SIGNAL_CODE)
+            local_state["right_blinker_state"] = 1
     elif pot < RIGHT_THRESH and state['br']:
-            state['br'] = 0
-            board.digital_pin_write(LED_R_PIN, 0)
-
+        state['br'] = 0
+        board.digital_pin_write(LED_R_PIN, 0)
+        if local_state["right_blinker_state"]:
+            send_dig_call(state['br'], RIGHT_SIGNAL_CODE)
+            local_state["right_blinker_state"] = 0
     print(state)
 
 # App setup
