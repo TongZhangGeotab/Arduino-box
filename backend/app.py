@@ -1,15 +1,14 @@
-import threading
-import time
+from datetime import datetime
+import json
 
 from pymata4 import pymata4
 from flask import Flask, jsonify
 from flask_cors import CORS
 
-# Callback data indices
-CB_PIN_MODE = 0
-CB_PIN = 1
-CB_VALUE = 2
-CB_TIME = 3
+import dig_calls
+
+# DIG constants
+SEND_DIG = False
 
 # Pinout constants
 IGNITION_PIN = 2
@@ -30,12 +29,16 @@ LED_HB_PIN = 8
 LED_HZ_PIN = 9
 
 # Constant values
-CYCLE_TIME = 0.1
+POLL_COUNT = 25
 
 MAX_INT = 1024
 
-LEFT_THRESH = MAX_INT // 3 - 1
-RIGHT_THRESH = MAX_INT * 2 // 3 - 1
+LEFT_THRESH = MAX_INT // 4
+RIGHT_THRESH = MAX_INT * 3 // 4
+
+with open('config.json', 'r') as file:
+    data = json.load(file)
+    SERIAL_NUMBER = data['serialNo']
 
 board = pymata4.Pymata4()
 
@@ -61,13 +64,13 @@ state = {
     'x': 0,
     'y': 0,
     'z': 0,
-    'speed': 0,
-    'angle': 0,
     'bl': 0,
     'br': 0,
     'hb': 0,
     'hz': 0,
 }
+
+ticks = 0
 
 hb_button_state = 0
 hz_button_state = 0
@@ -79,6 +82,19 @@ def system():
     ignition, _ = board.digital_read(IGNITION_PIN)
     if ignition != state['ignition']:
         state['ignition'] = ignition
+        if SEND_DIG:
+            try:
+                res = dig_calls.send_GenericStatusRecord(
+                    token=token,
+                    serialNo=SERIAL_NUMBER,
+                    code=IGNITION_CODE,
+                    value=state['ignition'],
+                    timestamp=datetime.now()
+                )
+                assert res
+            except AssertionError:
+                print('sending GeneritStatusRecord failed')
+
 
     hb, _ = board.digital_read(BUTTON_HB_PIN)
     if hb != hb_button_state:
@@ -104,21 +120,20 @@ def system():
 
     pot, _ = board.analog_read(POT_PIN)
 
-    if pot < 256 and not state['bl']:
+    if pot < LEFT_THRESH and not state['bl']:
         state['bl'] = 1
         board.digital_pin_write(LED_L_PIN, 1)
-    elif pot > 256 and state['bl']:
+    elif pot > LEFT_THRESH and state['bl']:
             state['bl'] = 0
             board.digital_pin_write(LED_L_PIN, 0)
-    if pot > 768 and not state['br']:
+    if pot > RIGHT_THRESH and not state['br']:
             state['br'] = 1
             board.digital_pin_write(LED_R_PIN, 1)
-    elif pot < 768 and state['br']:
+    elif pot < RIGHT_THRESH and state['br']:
             state['br'] = 0
             board.digital_pin_write(LED_R_PIN, 0)
 
     print(state)
-
 
 # App setup
 app = Flask(__name__)
@@ -132,4 +147,15 @@ def get_data():
     return state_data
 
 if __name__ == "__main__":
+    # Authentication calls for MyAdmin and DIG
+    if SEND_DIG:
+        try:
+            MyAdmin_authenticate_flag, userId, sessionId = dig_calls.authenticate_MyAdmin()
+            assert MyAdmin_authenticate_flag
+
+            DIG_authenticate_flag, token, tokenExpiration, refreshToken, refreshTokenExpiration = dig_calls.authenticate_DIG()
+            assert DIG_authenticate_flag
+        except AssertionError:
+            print('Authentication Error')
+
     app.run(debug=True, port=5000)
